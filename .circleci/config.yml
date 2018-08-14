@@ -5,7 +5,7 @@ aliases:
     context: org-global
   - &block_container_config
       docker:
-        - image: bvengineering/circleci-base-image:6-typescript
+        - image: circleci/python:3.6
           auth:
             username: $CTX_DOCKERHUB_USER
             password: $CTX_DOCKERHUB_PASS
