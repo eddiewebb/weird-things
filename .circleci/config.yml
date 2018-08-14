@@ -1,0 +1,136 @@
+version: 2
+aliases:
+  - &workspace_dir    .
+  - &block_default_context
+    context: org-global
+  - &block_container_config
+      docker:
+        - image: bvengineering/circleci-base-image:6-typescript
+          auth:
+            username: $CTX_DOCKERHUB_USER
+            password: $CTX_DOCKERHUB_PASS
+
+  - &default_env_vars
+      - NODE_ENV: test
+      - APP_NAME: api-toolkit
+      - NPM_NAME: api-toolkit
+  
+  - &step_attach_workspace
+    attach_workspace:
+      at: *workspace_dir
+
+jobs:
+
+  checkout:
+    <<: *block_container_config
+    environment:
+      - *default_env_vars
+    steps:
+      - checkout
+      - run:
+          name: Initialize
+          command: |
+            mkdir -p tmp/buildresources
+            echo "//registry.npmjs.org/:_authToken=$CTX_NPM_TOKEN" > .npmrc
+            sudo cp /usr/share/zoneinfo/PST8PDT /etc/localtime
+            date
+
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  init_build_utils:
+    <<: *block_container_config
+    environment:
+      - *default_env_vars
+    steps:
+      - *step_attach_workspace
+      - run:
+          name: Initialize Utils
+          command: |
+            mkdir -p tmp/buildresources/ci-utils
+            cp .npmrc tmp/buildresources/ci-utils
+            cd tmp/buildresources/ci-utils
+            npm init -fq
+            npm install @betterview/ci
+      - persist_to_workspace:
+          root: .
+          paths:
+            - tmp/buildresources/ci-utils/*
+            
+  restore_dependencies:
+    <<: *block_container_config
+    environment:
+      - *default_env_vars
+    steps:
+      - *step_attach_workspace
+      - run:
+          name: Restore Dependencies
+          command: npm install
+      - persist_to_workspace:
+          root: .
+          paths:
+            - node_modules/*
+
+  publish_npm:
+    <<: *block_container_config
+    environment:
+      - *default_env_vars
+    steps:
+      - *step_attach_workspace
+      - run: npm publish
+
+  create_release:
+    <<: *block_container_config
+    environment:
+      - *default_env_vars
+    steps:
+      - *step_attach_workspace
+      - run:
+          name: Create Release
+          command: |
+            sudo cp /usr/share/zoneinfo/PST8PDT /etc/localtime
+            date
+            node tmp/buildresources/ci-utils/node_modules/@betterview/ci/utils/createReleaseNotes.js --project="$APP_NAME" --branch=master --npm-name="$NPM_NAME"
+
+workflows:
+  version: 2
+  main_workflow:
+    jobs:
+      - checkout:
+          filters:
+            branches:
+              only: master
+          <<: *block_default_context
+      - init_build_utils:
+          requires:
+            - checkout
+          filters:
+            branches:
+              only: master
+          <<: *block_default_context
+      - restore_dependencies:
+          requires:
+            - checkout
+          filters:
+            branches:
+              only: master
+          <<: *block_default_context
+      - publish_npm:
+          requires:
+            - checkout
+            - init_build_utils
+            - restore_dependencies
+          filters:
+            branches:
+              only: master
+          <<: *block_default_context
+      - create_release:
+          requires:
+            - checkout
+            - publish_npm
+          filters:
+            branches:
+              only: master
+          <<: *block_default_context
